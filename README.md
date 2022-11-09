@@ -13,7 +13,19 @@ Python library to efficiently calculate dynamical coefficients in dark matter pe
 
   [LCDMSolverFAST](#LCDMSolverFAST)
 
-  [LKN](#LKN)
+  [LCDMNumerical](#LCDMNumerical)
+  
+  [SQSolver](#SQSolver)
+
+  [SQSolverFAST](#SQSolverFAST)
+
+  [SQNumerical](#SQNumerical)
+  
+  [CQSolver](#CQSolver)
+
+  [CQSolverFAST](#CQSolverFAST)
+
+  [CQNumerical](#CQNumerical)
   
   [N](#N)
   
@@ -76,12 +88,114 @@ As a result, this function is typically called as a time-saving step within the 
 
 with the same output structure as `LCDMSolver` described above.
 
-### LKN <a name="LKN"></a>
+### LCDMNumerical <a name="LCDMNumerical"></a>
+
+Though this library is built primarily around the Chebyshev spectral method, this provides an alternative brute force numerical integration method. The user calls `LKN` as follows:
+
+```python
+[Lambda, Kappa] = LCDMNumerical(n: int, Wm: float, N: int)
+````
+
+Here, $n$ is the desired order, (e.g. $n = 3$ returns $\lambda_3$ and $\kappa_3$ etc.); and $\Omega_m$ is the present day matter density parameter. $N$ here defines the desired number of subdivisions, with $N/2$ used in the integration routine.
+
+`Lambda` and `Kappa` are returned as multi-dimensional arrays containing all of the relevant $l$ modes. These are parsed as follows:
+
+```python
+Lambda_n_l = Lambda[l-1]
+```
+
+### SQSolver <a name="SQSolver"></a>
+This function utilises the Chebyshev spectral method to calculate dynamical coefficients in a universe with smooth quintessence. It is called as follows:
+
+```python
+[Lambda, Kappa, LambdaOld, KappaOld] = SQSolver(n: int, N: int, Wm: float)
+```
+
+where $n$ is the desired order (e.g. $n = 3$ returns $\lambda_3$ and $\kappa_3$ etc.); $N$ is the maximum order of Chebyshev polynomials used (e.g. $N = 4$ returns the first 5 components); and $\Omega_m$ is the present-day matter density parameter.
+
+This function will output `Lambda`, `Kappa` as arrays of length $N + 1$, representing the desired components of $\lambda_n$ and $\kappa_n$ respectively. `LambdaOld` and `KappaOld` are multi-dimensional arrays corresponding to all lower-order components. These can be parsed as follows:
+
+```python
+Lambda_n_l = Lambda[l-1]
+Lambda_m_l = LambdaOld[m-1][l-1] #for 1 < m < n
+Lambda_1 = LambdaOld[0] #for m = 1
+```
+
+The same method can be used to retrieve the associated values of $\kappa$.
+
+In this way, the user is able to find all unknown components of the dynamical coefficients required to plot the two-loop matter-matter  $\Lambda\mathrm{CDM}$ power spectrum with $N = 4$ just by calling `LCDMSolver(5,4,Wm)` once.
+
+Examples of how to proceed with these arrays are given in **total** below.
+
+### SQSolverFAST <a name="SQSolverFAST"></a>
+
+`SQSolverFAST` is a secondary function which works identically to `SQSolver` except taking components of $f_-/f_+^2$ and $1f_+$ $(c$ and $d$ respectively) as inputs. This bypasses the time-consuming step of the process.
+
+As a result, this function is typically called as a time-saving step within the iterative structure of `SQSolver`. The user may call it as follows:
+
+```python
+[Lambda, Kappa, LambdaOld, KappaOld] = SQSolverFAST(n: int, N: int, c: array, d: array)
+````
+
+with the same output structure as `SQSolver` described above.
+
+### SQNumerical <a name="SQNumerical"></a>
 
 Though this library is built primarily around the Chebyshev spectral method, this provides an alternative brute force numerical integration method. The user calls `LKN` as follows:
 
 ```python
 [Lambda, Kappa] = LKN(n: int, Wm: float, N: int)
+````
+
+Here, $n$ is the desired order, (e.g. $n = 3$ returns $\lambda_3$ and $\kappa_3$ etc.); and $\Omega_m$ is the present day matter density parameter. $N$ here defines the desired number of subdivisions, with $N/2$ used in the integration routine.
+
+`Lambda` and `Kappa` are returned as multi-dimensional arrays containing all of the relevant $l$ modes. These are parsed as follows:
+
+```python
+Lambda_n_l = Lambda[l-1]
+```
+
+### CQSolver <a name="CQSolver"></a>
+This function utilises the Chebyshev spectral method to calculate dynamical coefficients in a universe with smooth quintessence. It is called as follows:
+
+```python
+[Lambda, Kappa, LambdaOld, KappaOld] = CQSolver(n: int, N: int, Wm: float)
+```
+
+where $n$ is the desired order (e.g. $n = 3$ returns $\lambda_3$ and $\kappa_3$ etc.); $N$ is the maximum order of Chebyshev polynomials used (e.g. $N = 4$ returns the first 5 components); and $\Omega_m$ is the present-day matter density parameter.
+
+This function will output `Lambda`, `Kappa` as arrays of length $N + 1$, representing the desired components of $\lambda_n$ and $\kappa_n$ respectively. `LambdaOld` and `KappaOld` are multi-dimensional arrays corresponding to all lower-order components. These can be parsed as follows:
+
+```python
+Lambda_n_l = Lambda[l-1]
+Lambda_m_l = LambdaOld[m-1][l-1] #for 1 < m < n
+Lambda_1 = LambdaOld[0] #for m = 1
+```
+
+The same method can be used to retrieve the associated values of $\kappa$.
+
+In this way, the user is able to find all unknown components of the dynamical coefficients required to plot the two-loop matter-matter  $\Lambda\mathrm{CDM}$ power spectrum with $N = 4$ just by calling `CQSolver(5,4,Wm)` once.
+
+Examples of how to proceed with these arrays are given in **total** below.
+
+### CQSolverFAST <a name="CQSolverFAST"></a>
+
+`CQSolverFAST` is a secondary function which works identically to `CQSolver` except taking components of $f_-/f_+^2$ and $1f_+$ $(c$ and $d$ respectively) as inputs. This bypasses the time-consuming step of the process.
+
+As a result, this function is typically called as a time-saving step within the iterative structure of `CQSolver`. The user may call it as follows:
+
+```python
+[Lambda, Kappa, LambdaOld, KappaOld] = CQSolverFAST(n: int, N: int, c: array, d: array)
+````
+
+with the same output structure as `CQSolver` described above.
+
+### CQNumerical <a name="CQNumerical"></a>
+
+Though this library is built primarily around the Chebyshev spectral method, this provides an alternative brute force numerical integration method. The user calls `CQNumerical` as follows:
+
+```python
+[Lambda, Kappa] = CQNumerical(n: int, Wm: float, N: int)
 ````
 
 Here, $n$ is the desired order, (e.g. $n = 3$ returns $\lambda_3$ and $\kappa_3$ etc.); and $\Omega_m$ is the present day matter density parameter. $N$ here defines the desired number of subdivisions, with $N/2$ used in the integration routine.
