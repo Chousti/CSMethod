@@ -166,3 +166,23 @@ This routine returns the EdS (Einstein-de-Sitter), i.e. initial, values of $\lam
 This returns $[\lambda_n^{(l), \mathrm{EdS}}, \kappa_n^{(l), \mathrm{EdS}}]$ as an array.
 
 ## How to cite <a name="citations"></a>
+
+If you use the code for a project, please cite it as follows:
+```
+@ARTICLE{Choustikov:2023,
+       author = {{Choustikov}, Nicholas and {Vlah}, Zvonimir and {Challinor}, Anthony},
+        title = "{Optimizing the Evolution of Perturbations in the $\Lambda$CDM Universe}",
+      journal = {arXiv e-prints},
+     keywords = {Astrophysics - Cosmology and Nongalactic Astrophysics},
+         year = 2023,
+        month = may,
+          eid = {arXiv:2305.09337},
+        pages = {arXiv:2305.09337},
+          doi = {10.48550/arXiv.2305.09337},
+archivePrefix = {arXiv},
+       eprint = {2305.09337},
+ primaryClass = {astro-ph.CO},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2023arXiv230509337C},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+}
+```
