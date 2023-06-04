@@ -858,3 +858,1517 @@ def LCDMNumerical(n: int, Wm: float, M: int):
         Kap.append(k)
     return [Lam,Kap]
 
+def SQSolver(n: int, M: int, Wm: float, w: float):
+    #Returns M + 1 unknown components of lambda_n, kappa_n for Smooth Quintessence universe with Wm and w
+    def Dminus(x: float, Wm: int, w: int):
+        #Returns D_- (negative growing mode)
+        y = ((1 - Wm)/Wm)*x**(-3*w)
+        return H0*Wm**(0.5)*x**(-1.5)*hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y)
+
+    def Dplus(x: float, Wm: float, w:float):
+        #Returns D_+ (positive growing mode)
+        y = ((1 - Wm)/Wm)*x**(-3*w)
+        return x*hyp2f1(-1/(3*w), 0.5 - 1/(2*w), 1 - 5/(6*w), -y)
+
+    def H(x: float, Wm: float, w: float):
+        #Returns Hubble parameter
+        return H0*np.sqrt(Wm*x**(-3) + (1-Wm)*x**(-3*(1+w)))
+
+    def OmegaM(x: float, Wm: float, w: float):
+        #Returns reduced matter density parameter
+        return Wm*H0**2/(H(x,Wm,w)**2*x**3)
+
+    def fminus(x: float, Wm: float, w: float):
+        #Returns f_- (logarithmic growth rate of negative mode)
+        y = ((1 - Wm)/Wm)*x**(-3*w)
+        return -1.5*(1 - ((2 + 3*w)/(5 + 6*w))*y*((hyp2f1(1 + 1/(2*w), 1.5 + 1/(3*w), 2 + 5/(6*w), -y))/(hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y))))
+
+    def fplus(x: float, Wm: float, w: float):
+        #Returns f_+ (logarithmic growth rate of growing mode)
+        y = ((1 - Wm)/Wm)*x**(-3*w)
+        return 1 - 3*y*((w - 1)/(6*w - 5))*((hyp2f1(1 - 1/(3*w), 1.5 - 1/(2*w), 2 - 5/(6*w), -y))/(hyp2f1(-1/(3*w), 0.5 - 1/(2*w), 1 - 5/(6*w), -y)))
+
+    if n == 1:
+        #n = 1 perturbative solution is known
+        L = np.zeros(M+1)
+        L[0] += 1
+        K = np.zeros(M+1)
+        K[0] += 1
+        return [L,K,0,0]
+    else:
+        """
+        Step 1: Calculate required weights of f_-/f_+^2 and 1/f_+ as well as previous \lambda,\kappa
+        Step 2: Use CSM to calculate U,W's
+        Step 3: Use LamKapfinder to sum these into desired \lambda,\kappa
+        Step 4: Return info as array of arrays
+
+        Current data format: Arrays of form: L = [[\lambda_1^1],[[\lambda_2^1],[\lambda_2^2]],...]
+        \lambda_n^l = L[n-1][l-1], for n > 1
+        \lambda_n^l = L[0], for n = 1
+
+        Step 1
+        Finding components for combinations of f_+, f_-
+        """
+        #c: components of 1/f_+
+        def cweight(M: int, Wm: float, w: float):
+            #Returns M + 1 components of 1/f_+ 
+            cs = []
+            def integrand(x: float):
+                return 2*(fplus(x,Wm,w))**(-1)*Ts(i,x)/np.sqrt((b-a)**2 - (2*x - a - b)**2)
+            for i in range(0,M):
+                if i == 0:
+                    s = q.quad(integrand,a,b)[0]/np.pi
+                else:
+                    s = 2*(q.quad(integrand,a,b)[0]/np.pi)
+                cs.append(s)
+            return cs  	
+            
+        #d: components of f_-/f_+^2
+        def dweight(M: int, Wm: float, w: float):
+            #Returns M + 1 components of f_-/f_+^2
+            ds = []
+            def integrand(x: float):
+                return 2*fminus(x,Wm,w)*(fplus(x,Wm,w))**(-2)*Ts(i,x)/np.sqrt((b-a)**2 - (2*x - a - b)**2)
+            for i in range(0,M):
+                if i == 0:
+                    s = q.quad(integrand,a,b)[0]/np.pi
+                else:
+                    s = 2*(q.quad(integrand,a,b)[0]/np.pi)
+                ds.append(s)
+            return ds  
+            
+        #Finding function weights
+        c = cweight(M+1,Wm,w)
+        d = dweight(M+1,Wm,w)
+        
+        #Finding previous functions        
+        L = []
+        K = []
+        [l2,k2,l1,k1] = SQSolverFAST(n-1,M,c,d) #LCDMSolverFAST is used to save calculating for c,d again
+        for i in range(1,n-1):
+            L.append(l1[i-1])
+            K.append(k1[i-1])
+        L.append(l2)
+        K.append(k2)  
+
+        #Step 2
+        #"Product" matrix, for left multiplying with a function with components x[n]
+        def Product(x: list, M: float):
+            def term(x: list, i: float, j: float):
+                if j == 0:
+                    if i == 0:
+                        return 2*x[0]
+                    else:
+                        return x[i]
+                elif i == 0:
+                    if j == 0:
+                        return 2*x[0]
+                    else:
+                        return 2*x[j]
+                elif i == j:
+                    if i + j > M:
+                        return 2*x[0]
+                    else:
+                        return x[i+j] + 2*x[0]
+                else:
+                    if i + j > M: 
+                        return x[np.abs(i - j)]
+                    else:
+                        return x[i+j] + x[np.abs(i - j)]
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 0.5*term(x,i,j)
+            return X
+				
+		#"Derivative" matrix, for left multiplying with d/dx
+        def Derivative(M: int):
+            def term(i: int, j: int):
+                if j >= i:
+                    return 0
+                elif j%2 == i%2:
+                    return 0
+                elif j%2 == 0:
+                    if j == 0:
+                        return 0.5*i
+                    else:
+                        return i
+                else:
+                    return i
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 4*term(i,j)
+            return X
+
+        #Components for f(x) = x
+        def lin(M: int):
+            l = np.zeros((M+1))
+            l[0] += 0.5
+            l[1] += 0.5
+            return l
+
+        #CSM method to find Ualpha and Walpha components
+        def Alpha(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            D = Derivative(M)
+
+            #Defining source terms for alpha system of ODEs
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return prod@L[h]
+                    else:
+                        return prod@(L[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return prod@L[h]
+                    else:
+                        return prod@(L[m2 - 1][J - 1])
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            #Finding equation of motion matrices
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+
+            #Replacing last lines in A, B, source with constraints:	
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds, Ueds] = AlphaEDS(n,I,J,m1,m2) 
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+
+			#Doing the linear algebra:
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        #CSM method to find Ubeta and Wbeta
+        def Beta(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            D = Derivative(M)
+
+            #Defining source terms for beta system of ODEs
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return prod@K[h]
+                    else:
+                        return prod@(K[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return prod@K[h]
+                    else:
+                        return prod@(K[m2 - 1][J - 1])
+
+            #Finding equation of motion matrices
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+
+            #Replacing last lines in A, B, source with constraint:		
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds,Ueds] = BetaEDS(n,I,J,m1,m2)
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+
+            #Doing the linear algebra:
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        #Step 3
+        #Lambda and Kappa functions are found in terms of coefficient weights - then recombined
+        def LamKapfinder(n: int, l: int, M: int, L: list, K: list): #Finds coefficients of \lambda and \kappa
+            s1 = np.zeros(M+1)
+            s2 = np.zeros(M+1)
+            if deltaK(n/2, np.floor(n/2)) == 1:
+                t1 = np.zeros(M+1)
+                t2 = np.zeros(M+1)
+                for i in range(1,int(N(n/2)+1)):
+                    for j in range(1,int(N(n/2)+1)):
+                        if deltaK(l,phi1(n,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Walpha)
+                            t2 = np.add(t2,Ualpha)
+                    for j in range(i,int(N(n/2)+1)):
+                        if deltaK(l,phi2(n,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Wbeta)
+                            t2 = np.add(t2,Ubeta)
+                s1 = np.add(s1,t1)
+                s2 = np.add(s2,t2)
+
+            for m in range(1, int(np.floor((n+1)/2))):
+                for i in range(1,int(N(m)+1)):
+                    for j in range(1,int(N(n - m)+1)):
+                        if deltaK(l,phi3(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi4(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,j,i,n-m,m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi5(n,m,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Wbeta)
+                            s2 = np.add(s2,Ubeta)
+            return [s1, s2]
+
+        Lnew = []
+        Knew = []
+        for l in range(1,int(N(n)+1)):
+            [l1,k1] = LamKapfinder(n,l,M,L,K)
+            Lnew.append(l1)
+            Knew.append(k1)
+        return [Lnew,Knew,L,K] #Use func total() to recombine these into the full dynamical function
+
+#Faster solver, which avoids calculating c, d based on inputs
+def SQSolverFAST(n: int, M: int, c: list, d: list):
+    #Returns M + 1 unknown components of lambda_n, kappa_n for Smooth Quintessence universe with Wm and w
+    if n == 1:
+        #n = 1 perturbative solution is known
+        L = np.zeros(M+1)
+        L[0] += 1
+        K = np.zeros(M+1)
+        K[0] += 1
+        return [L,K,0,0]
+    else:
+        """
+        Step 1: Calculate previous \lambda,\kappa
+        Step 2: Use CSM to calculate U,W's
+        Step 3: Use LamKapfinder to sum these into desired \lambda,\kappa
+        Step 4: Return info as array of arrays
+
+        Current data format: Arrays of form: L = [[\lambda_1^1],[[\lambda_2^1],[\lambda_2^2]],...]
+        \lambda_n^l = L[n-1][l-1], for n > 1
+        \lambda_n^l = L[0], for n = 1
+
+        Step 1
+        Finding components for combinations of f_+, f_-
+        """
+        L = []
+        K = []
+        [l2,k2,l1,k1] = SQSolverFAST(n-1,M,c,d)
+        for i in range(1,n-1):
+            L.append(l1[i-1])
+            K.append(k1[i-1])
+        L.append(l2)
+        K.append(k2)
+    
+        def Product(x: list, M: float):
+            def term(x: list, i: float, j: float):
+                if j == 0:
+                    if i == 0:
+                        return 2*x[0]
+                    else:
+                        return x[i]
+                elif i == 0:
+                    if j == 0:
+                        return 2*x[0]
+                    else:
+                        return 2*x[j]
+                elif i == j:
+                    if i + j > M:
+                        return 2*x[0]
+                    else:
+                        return x[i+j] + 2*x[0]
+                else:
+                    if i + j > M: 
+                        return x[np.abs(i - j)]
+                    else:
+                        return x[i+j] + x[np.abs(i - j)]
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 0.5*term(x,i,j)
+            return X
+				
+		#"Derivative" matrix, for left multiplying with d/dx
+        def Derivative(M: int):
+            def term(i: int, j: int):
+                if j >= i:
+                    return 0
+                elif j%2 == i%2:
+                    return 0
+                elif j%2 == 0:
+                    if j == 0:
+                        return 0.5*i
+                    else:
+                        return i
+                else:
+                    return i
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 4*term(i,j)
+            return X
+
+        #Components for f(x) = x
+        def lin(M: int):
+            l = np.zeros((M+1))
+            l[0] += 0.5
+            l[1] += 0.5
+            return l
+
+        def Alpha(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            D = Derivative(M)
+
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return prod@L[h]
+                    else:
+                        return prod@(L[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return prod@L[h]
+                    else:
+                        return prod@(L[m2 - 1][J - 1])
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+		
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds, Ueds] = AlphaEDS(n,I,J,m1,m2)
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+			#Doing the linear algebra:
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        def Beta(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            D = Derivative(M)
+
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return prod@K[h]
+                    else:
+                        return prod@(K[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return prod@K[h]
+                    else:
+                        return prod@(K[m2 - 1][J - 1])
+
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+            		
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds,Ueds] = BetaEDS(n,I,J,m1,m2)
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        def LamKapfinder(n: int, l: int, M: int, L: list, K: list): #Finds coefficients of \lambda
+            s1 = np.zeros(M+1)
+            s2 = np.zeros(M+1)
+            if deltaK(n/2, np.floor(n/2)) == 1:
+                t1 = np.zeros(M+1)
+                t2 = np.zeros(M+1)
+                for i in range(1,int(N(n/2)+1)):
+                    for j in range(1,int(N(n/2)+1)):
+                        if deltaK(l,phi1(n,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Walpha)
+                            t2 = np.add(t2,Ualpha)
+                    for j in range(i,int(N(n/2)+1)):
+                        if deltaK(l,phi2(n,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Wbeta)
+                            t2 = np.add(t2,Ubeta)
+                s1 = np.add(s1,t1)
+                s2 = np.add(s2,t2)
+
+            for m in range(1, int(np.floor((n+1)/2))):
+                for i in range(1,int(N(m)+1)):
+                    for j in range(1,int(N(n - m)+1)):
+                        if deltaK(l,phi3(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi4(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,j,i,n-m,m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi5(n,m,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Wbeta)
+                            s2 = np.add(s2,Ubeta)           
+            return [s1, s2]
+
+        Lnew = []
+        Knew = []
+        for l in range(1,int(N(n)+1)):
+            [l1,k1] = LamKapfinder(n,l,M,L,K)
+            Lnew.append(l1)
+            Knew.append(k1)
+        return [Lnew,Knew,L,K] 
+
+def CQSolver(n: int, M: int, Wm: float, w: float):
+    #Returns M + 1 unknown components of lambda_n, kappa_n for Clustered Quintessence universe with Wm and w
+    def H(x: float, Wm: float, w: float):
+        #Returns Hubble parameter
+        return H0*np.sqrt(Wm*x**(-3) + (1-Wm)*x**(-3*(1+w)))
+
+    def C(x,Wm,w):
+        return 1 + (1+w)*((1 - Wm)/Wm)*x**(-3*w)
+
+    def OmegaM(x: float, Wm: float, w: float):
+        #Returns reduced matter density parameter
+        return Wm*H0**2/(H(x,Wm,w)**2*x**3)
+
+    def Dminus(x: float, Wm: int, w: int):
+        #Returns D_- (negative growing mode)
+        return H(x,Wm,w)
+
+    def Dplus(x: float, Wm: float, w:float):
+        #Returns D_+ (positive growing mode)
+        y = ((1 - Wm)/Wm)*x**(-3*w)
+        return a * (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
+
+    def fminus(x: float, Wm: float, w: float):
+        #Returns f_- (logarithmic growth rate of negative mode)
+        y = ((1 - Wm)/Wm)*x**(-3*w)
+        return -1.5*OmegaM(x,Wm,w)*C(x,Wm,w)
+
+    def fplus(x: float, Wm: float, w: float):
+        #Returns f_+ (logarithmic growth rate of growing mode)
+        y = ((1 - Wm)/Wm)*x**(-3*w)
+        return 1 + (3*w*x/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
+
+    if n == 1:
+        #n = 1 perturbative solution is known
+        L = np.zeros(M+1)
+        L[0] += 1
+        K = np.zeros(M+1)
+        K[0] += 1
+        return [L,K,0,0]
+    else:
+        """
+        Step 1: Calculate required weights of f_-/f_+^2 and 1/f_+ as well as previous \lambda,\kappa
+        Step 2: Use CSM to calculate U,W's
+        Step 3: Use LamKapfinder to sum these into desired \lambda,\kappa
+        Step 4: Return info as array of arrays
+
+        Current data format: Arrays of form: L = [[\lambda_1^1],[[\lambda_2^1],[\lambda_2^2]],...]
+        \lambda_n^l = L[n-1][l-1], for n > 1
+        \lambda_n^l = L[0], for n = 1
+
+        Step 1
+        Finding components for combinations of f_+, f_-
+        """
+        #c: components of 1/f_+
+        def cweight(M: int, Wm: float, w: float):
+            #Returns M + 1 components of 1/f_+ 
+            cs = []
+            def integrand(x: float):
+                return 2*(fplus(x,Wm,w))**(-1)*Ts(i,x)/np.sqrt((b-a)**2 - (2*x - a - b)**2)
+            for i in range(0,M):
+                if i == 0:
+                    s = q.quad(integrand,a,b)[0]/np.pi
+                else:
+                    s = 2*(q.quad(integrand,a,b)[0]/np.pi)
+                cs.append(s)
+            return cs  	
+            
+        #d: components of f_-/f_+^2
+        def dweight(M: int, Wm: float, w: float):
+            #Returns M + 1 components of f_-/f_+^2
+            ds = []
+            def integrand(x: float):
+                return 2*fminus(x,Wm,w)*(fplus(x,Wm,w))**(-2)*Ts(i,x)/np.sqrt((b-a)**2 - (2*x - a - b)**2)
+            for i in range(0,M):
+                if i == 0:
+                    s = q.quad(integrand,a,b)[0]/np.pi
+                else:
+                    s = 2*(q.quad(integrand,a,b)[0]/np.pi)
+                ds.append(s)
+            return ds  
+        
+        #Finding function weights
+        c = cweight(M+1,Wm,w)
+        d = dweight(M+1,Wm,w)
+
+        #Step 2
+        #"Product" matrix, for left multiplying with a function with components x[n]
+        def Product(x: list, M: float):
+            def term(x: list, i: float, j: float):
+                if j == 0:
+                    if i == 0:
+                        return 2*x[0]
+                    else:
+                        return x[i]
+                elif i == 0:
+                    if j == 0:
+                        return 2*x[0]
+                    else:
+                        return 2*x[j]
+                elif i == j:
+                    if i + j > M:
+                        return 2*x[0]
+                    else:
+                        return x[i+j] + 2*x[0]
+                else:
+                    if i + j > M: 
+                        return x[np.abs(i - j)]
+                    else:
+                        return x[i+j] + x[np.abs(i - j)]
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 0.5*term(x,i,j)
+            return X
+				
+		#"Derivative" matrix, for left multiplying with d/dx
+        def Derivative(M: int):
+            def term(i: int, j: int):
+                if j >= i:
+                    return 0
+                elif j%2 == i%2:
+                    return 0
+                elif j%2 == 0:
+                    if j == 0:
+                        return 0.5*i
+                    else:
+                        return i
+                else:
+                    return i
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 4*term(i,j)
+            return X
+
+        #Components for f(x) = x
+        def lin(M: int):
+            l = np.zeros((M+1))
+            l[0] += 0.5
+            l[1] += 0.5
+            return l
+
+        def Cfinder(M: int, Wm: float, w: float):
+            #Source terms:
+            def source(M,w):
+                t = np.zeros((M+1))
+                t[0] += 3*w
+                return t
+                
+            P1 = Product(lin(M),M)
+            D = Derivative(M)
+            
+            #Components
+            A = P1@D + 3*w*np.eye(M +1)
+            source1 = source(M,w)
+
+            #Replacing last lines in A, B, source with constraint:				
+            line = -1 #Final line
+            line2 = -2 #Penultimate line
+            for i in range(0,M+1):
+                if i == 0:
+                    A[line,i] = (-1)**i
+                    A[line2,i] = (1)**i
+                else:
+                    A[line,i] = (-1)**i
+                    A[line2,i] = (1)**i
+
+            source1[line] = C(0,Wm,w)
+            source1[line2] = C(1,Wm,w)
+
+            #Doing the linear algebra:
+            Mat = np.array(A, dtype=np.double)
+            source1 = np.array(source1,dtype=np.double)
+            sol = np.linalg.solve(Mat,source1)
+            return sol	
+        e = Cfinder(M,Wm,w)
+
+        #Finding previous functions        
+        L = []
+        K = []
+        [l2,k2,l1,k1] = CQSolverFAST(n-1,M,c,d,e) #LCDMSolverFAST is used to save calculating for c,d again
+        for i in range(1,n-1):
+            L.append(l1[i-1])
+            K.append(k1[i-1])
+        L.append(l2)
+        K.append(k2)  
+
+        #CSM method to find Ualpha and Walpha components
+        def Alpha(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            PC = Product(e,M)
+            PCi = np.linalg.inv(PC)
+            D = Derivative(M)
+
+            #Defining source terms for alpha system of ODEs
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return PCi@prod@L[h]
+                    else:
+                        return PCi@prod@(L[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return PCi@prod@L[h]
+                    else:
+                        return PCi@prod@(L[m2 - 1][J - 1])
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            #Finding equation of motion matrices
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+
+            #Replacing last lines in A, B, source with constraints:	
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds, Ueds] = AlphaEDS(n,I,J,m1,m2) 
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+
+			#Doing the linear algebra:
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        #CSM method to find Ubeta and Wbeta
+        def Beta(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            PC = Product(e,M)
+            PCi = np.linalg.inv(PC)
+            D = Derivative(M)
+
+            #Defining source terms for beta system of ODEs
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return PCi@prod@K[h]
+                    else:
+                        return PCi@prod@(K[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return PCi@prod@K[h]
+                    else:
+                        return PCi@prod@(K[m2 - 1][J - 1])
+
+            #Finding equation of motion matrices
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+
+            #Replacing last lines in A, B, source with constraint:		
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds,Ueds] = BetaEDS(n,I,J,m1,m2)
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+
+            #Doing the linear algebra:
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        #Step 3
+        #Lambda and Kappa functions are found in terms of coefficient weights - then recombined
+        def LamKapfinder(n: int, l: int, M: int, L: list, K: list): #Finds coefficients of \lambda and \kappa
+            s1 = np.zeros(M+1)
+            s2 = np.zeros(M+1)
+            if deltaK(n/2, np.floor(n/2)) == 1:
+                t1 = np.zeros(M+1)
+                t2 = np.zeros(M+1)
+                for i in range(1,int(N(n/2)+1)):
+                    for j in range(1,int(N(n/2)+1)):
+                        if deltaK(l,phi1(n,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Walpha)
+                            t2 = np.add(t2,Ualpha)
+                    for j in range(i,int(N(n/2)+1)):
+                        if deltaK(l,phi2(n,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Wbeta)
+                            t2 = np.add(t2,Ubeta)
+                s1 = np.add(s1,t1)
+                s2 = np.add(s2,t2)
+
+            for m in range(1, int(np.floor((n+1)/2))):
+                for i in range(1,int(N(m)+1)):
+                    for j in range(1,int(N(n - m)+1)):
+                        if deltaK(l,phi3(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi4(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,j,i,n-m,m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi5(n,m,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Wbeta)
+                            s2 = np.add(s2,Ubeta)
+            return [s1, s2]
+
+        Lnew = []
+        Knew = []
+        for l in range(1,int(N(n)+1)):
+            [l1,k1] = LamKapfinder(n,l,M,L,K)
+            Lnew.append(l1)
+            Knew.append(k1)
+        return [Lnew,Knew,L,K] #Use func total() to recombine these into the full dynamical function
+
+#Faster solver, which avoids calculating c, d, e based on inputs
+def CQSolverFAST(n: int, M: int, c: list, d: list, e: list):
+    #Returns M + 1 unknown components of lambda_n, kappa_n for Clustered Quintessence universe with Wm and w
+    if n == 1:
+        #n = 1 perturbative solution is known
+        L = np.zeros(M+1)
+        L[0] += 1
+        K = np.zeros(M+1)
+        K[0] += 1
+        return [L,K,0,0]
+    else:
+        """
+        Step 1: Calculate previous \lambda,\kappa
+        Step 2: Use CSM to calculate U,W's
+        Step 3: Use LamKapfinder to sum these into desired \lambda,\kappa
+        Step 4: Return info as array of arrays
+
+        Current data format: Arrays of form: L = [[\lambda_1^1],[[\lambda_2^1],[\lambda_2^2]],...]
+        \lambda_n^l = L[n-1][l-1], for n > 1
+        \lambda_n^l = L[0], for n = 1
+
+        Step 1
+        Finding components for combinations of f_+, f_-
+        """
+        L = []
+        K = []
+        [l2,k2,l1,k1] = CQSolverFAST(n-1,M,c,d,e)
+        for i in range(1,n-1):
+            L.append(l1[i-1])
+            K.append(k1[i-1])
+        L.append(l2)
+        K.append(k2)
+    
+        def Product(x: list, M: float):
+            def term(x: list, i: float, j: float):
+                if j == 0:
+                    if i == 0:
+                        return 2*x[0]
+                    else:
+                        return x[i]
+                elif i == 0:
+                    if j == 0:
+                        return 2*x[0]
+                    else:
+                        return 2*x[j]
+                elif i == j:
+                    if i + j > M:
+                        return 2*x[0]
+                    else:
+                        return x[i+j] + 2*x[0]
+                else:
+                    if i + j > M: 
+                        return x[np.abs(i - j)]
+                    else:
+                        return x[i+j] + x[np.abs(i - j)]
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 0.5*term(x,i,j)
+            return X
+				
+		#"Derivative" matrix, for left multiplying with d/dx
+        def Derivative(M: int):
+            def term(i: int, j: int):
+                if j >= i:
+                    return 0
+                elif j%2 == i%2:
+                    return 0
+                elif j%2 == 0:
+                    if j == 0:
+                        return 0.5*i
+                    else:
+                        return i
+                else:
+                    return i
+            X = np.zeros((M+1,M+1))
+            for i in range(0,M+1):
+                for j in range(0,M+1):
+                    X[j,i] += 4*term(i,j)
+            return X
+
+        #Components for f(x) = x
+        def lin(M: int):
+            l = np.zeros((M+1))
+            l[0] += 0.5
+            l[1] += 0.5
+            return l
+
+        def Alpha(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            PC = Product(e,M)
+            PCi = np.linalg.inv(PC)
+            D = Derivative(M)
+
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return PCi@prod@L[h]
+                    else:
+                        return PCi@prod@(L[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return PCi@prod@L[h]
+                    else:
+                        return PCi@prod@(L[m2 - 1][J - 1])
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+		
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds, Ueds] = AlphaEDS(n,I,J,m1,m2)
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+			#Doing the linear algebra:
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        def Beta(n: int, I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+            P1 = Product(c,M)
+            P2 = Product(d,M)
+            P3 = Product(lin(M),M)
+            PC = Product(e,M)
+            PCi = np.linalg.inv(PC)
+            D = Derivative(M)
+
+            def Wsource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                return np.zeros(M+1)
+
+            def Usource(I: int, J: int, m1: int, m2: int, M: int, L: list, K: list):
+                m1 = int(m1)
+                m2 = int(m2)
+                g = 0
+                h = 0
+                for ii in range(1,int(m1)):
+                    g += N(ii)
+                for ii in range(1,int(m2)):
+                    h += N(ii)
+                g += I - 1
+                h += J - 1
+                if g == 0:
+                    prod = Product(K[g],M)
+                    if h == 0:
+                        return PCi@prod@K[h]
+                    else:
+                        return PCi@prod@(K[m2 - 1][J - 1])
+                else:
+                    prod = Product(K[m1-1][I - 1],M)
+                    if h == 0:
+                        return PCi@prod@K[h]
+                    else:
+                        return PCi@prod@(K[m2 - 1][J - 1])
+
+            Ws1 = (P3@P1@D + n*np.eye(M +1))
+            Ws2 = -np.eye(M+1)
+            Us1 = P2
+            Us2 = (P3@P1@D + (n-1)*np.eye(M+1) - P2)
+
+            A = np.hstack((Ws1,Ws2))
+            B = np.hstack((Us1,Us2))
+            source1 = Wsource(I,J,m1,m2,M,L,K)
+            source2 = Usource(I,J,m1,m2,M,L,K)
+            		
+            line = -1 #Final line
+            for i in range(0,2*M+2):
+                if i <= M:
+                    if i == 0:
+                        A[line,i] = (-1)**i
+                    else:
+                        A[line,i] = (-1)**i
+                    B[line,i] = 0
+                else:
+                    A[line,i] = 0
+                    if i == M+1:
+                        B[line,i] = (-1)**(i - M - 1)
+                    else:
+                        B[line,i] = (-1)**(i - M - 1)
+
+            [Weds,Ueds] = BetaEDS(n,I,J,m1,m2)
+            source1[-1] = Weds
+            source2[-1] = Ueds
+            Mat = np.vstack((A,B))
+            source = np.array(np.concatenate((source1,source2),axis=None))
+            Mat = np.array(Mat, dtype=np.double)
+            source = np.array(source,dtype=np.double)
+            sol = np.linalg.solve(Mat,source)
+            W = np.asarray(sol[0:M+1])
+            U = np.asarray(sol[M+1:])
+            return [W,U]
+
+        def LamKapfinder(n: int, l: int, M: int, L: list, K: list): #Finds coefficients of \lambda
+            s1 = np.zeros(M+1)
+            s2 = np.zeros(M+1)
+            if deltaK(n/2, np.floor(n/2)) == 1:
+                t1 = np.zeros(M+1)
+                t2 = np.zeros(M+1)
+                for i in range(1,int(N(n/2)+1)):
+                    for j in range(1,int(N(n/2)+1)):
+                        if deltaK(l,phi1(n,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Walpha)
+                            t2 = np.add(t2,Ualpha)
+                    for j in range(i,int(N(n/2)+1)):
+                        if deltaK(l,phi2(n,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,n/2,n/2,M,L,K)
+                            t1 = np.add(t1,Wbeta)
+                            t2 = np.add(t2,Ubeta)
+                s1 = np.add(s1,t1)
+                s2 = np.add(s2,t2)
+
+            for m in range(1, int(np.floor((n+1)/2))):
+                for i in range(1,int(N(m)+1)):
+                    for j in range(1,int(N(n - m)+1)):
+                        if deltaK(l,phi3(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi4(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = Alpha(n,j,i,n-m,m,M,L,K)
+                            s1 = np.add(s1,Walpha)
+                            s2 = np.add(s2,Ualpha)
+                        if deltaK(l,phi5(n,m,i,j)) == 1:
+                            [Wbeta, Ubeta] = Beta(n,i,j,m,n-m,M,L,K)
+                            s1 = np.add(s1,Wbeta)
+                            s2 = np.add(s2,Ubeta)           
+            return [s1, s2]
+
+        Lnew = []
+        Knew = []
+        for l in range(1,int(N(n)+1)):
+            [l1,k1] = LamKapfinder(n,l,M,L,K)
+            Lnew.append(l1)
+            Knew.append(k1)
+        return [Lnew,Knew,L,K] 
+
+#Numerical solver for SQ
+def SQNumerical(n: int, Wm: float, w: float, M: int):
+    def LamKapNumerical(n: int, l: int, Wm: float, w: float, x: float, M: int): #Finds coefficients of \lambda
+        #Smooth Quintessence formulae
+        def Dminus(x: float, Wm: int, w: int):
+            #Returns D_- (negative growing mode)
+            y = ((1 - Wm)/Wm)*x**(-3*w)
+            return H0*Wm**(0.5)*x**(-1.5)*hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y)
+
+        def Dplus(x: float, Wm: float, w:float):
+            #Returns D_+ (positive growing mode)
+            y = ((1 - Wm)/Wm)*x**(-3*w)
+            return x*hyp2f1(-1/(3*w), 0.5 - 1/(2*w), 1 - 5/(6*w), -y)
+
+        def H(x: float, Wm: float, w: float):
+            #Returns Hubble parameter
+            return H0*np.sqrt(Wm*x**(-3) + (1-Wm)*x**(-3*(1+w)))
+
+        def OmegaM(x: float, Wm: float, w: float):
+            #Returns reduced matter density parameter
+            return Wm*H0**2/(H(x,Wm,w)**2*x**3)
+
+        def fminus(x: float, Wm: float, w: float):
+            #Returns f_- (logarithmic growth rate of negative mode)
+            y = ((1 - Wm)/Wm)*x**(-3*w)
+            return -1.5*(1 - ((2 + 3*w)/(5 + 6*w))*y*((hyp2f1(1 + 1/(2*w), 1.5 + 1/(3*w), 2 + 5/(6*w), -y))/(hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y))))
+
+        def fplus(x: float, Wm: float, w: float):
+            #Returns f_+ (logarithmic growth rate of growing mode)
+            y = ((1 - Wm)/Wm)*x**(-3*w)
+            return 1 - 3*y*((w - 1)/(6*w - 5))*((hyp2f1(1 - 1/(3*w), 1.5 - 1/(2*w), 2 - 5/(6*w), -y))/(hyp2f1(-1/(3*w), 0.5 - 1/(2*w), 1 - 5/(6*w), -y)))
+
+
+        def NAlpha(n: int, i: int, j: int, m1: int, m2: int, Wm: float, w: float, x: float, M: int):
+            WU0 = AlphaEDS(n,i,j,m1,m2)
+            def integrand(y: list, u: float):
+                fp = fplus(u,Wm,w)
+                fm = fminus(u,Wm,w)
+                [L1,K1] = LamKapNumerical(m1,i,Wm,w,u,M)
+                [L2,K2] = LamKapNumerical(m2,j,Wm,w,u,M)
+                return [fp/u*(y[1] - n*y[0] + K1*L2) , fp/u*( (fm*fp**(-2))*(y[1] - y[0]) - (n-1)*y[1])] #integrand vector
+            u = np.linspace(0.000001,x,int(np.floor(M/2))) #M: Accuracy on sub-step
+            sol = q.odeint(integrand,WU0,u)
+            return [sol[-1,0], sol[-1,1]]
+
+        def NBeta(n: int, i: int, j: int, m1: int, m2: int, Wm: float, w: float, x: float, M: int):
+            WU0 = BetaEDS(n,i,j,m1,m2)
+            def integrand(y: list, u: float):
+                fp = fplus(u,Wm,w)
+                fm = fminus(u,Wm,w)
+                [L1,K1] = LamKapNumerical(m1,i,Wm,w,u,M)
+                [L2,K2] = LamKapNumerical(m2,j,Wm,w,u,M)
+                return [fp/u*(y[1] - n*y[0]) , fp/u*( (fm*fp**(-2))*(y[1] - y[0]) - (n-1)*y[1] + K1*K2)] #integrand vector
+            a = np.linspace(0.000001,x,int(np.floor(M/2))) #M: Accuracy on sub-step
+            sol = q.odeint(integrand,WU0,a)
+            return [sol[-1,0],sol[-1,1]]
+
+        if n == 1:
+            return [1,1]
+        else:
+            s1 = 0
+            s2 = 0
+            if deltaK(n/2, np.floor(n/2)) == 1:
+                t1 = 0
+                t2 = 0
+                for i in range(1,int(N(n/2)+1)):
+                    for j in range(1,int(N(n/2)+1)):
+                        if deltaK(l,phi1(n,i,j)) == 1:
+                            [Walpha, Ualpha] = NAlpha(n,i,j,n/2,n/2,Wm,w,x, M)
+                            t1 += Walpha
+                            t2 += Ualpha
+                    #Maybe speed this up by using if i \leq i then (could get rid of the extra loop)
+                    for j in range(i,int(N(n/2)+1)):
+                        if deltaK(l,phi2(n,i,j)) == 1:
+                            [Wbeta, Ubeta] = NBeta(n,i,j,n/2,n/2,Wm,w,x, M)
+                            t1 += Wbeta
+                            t2 += Ubeta
+                s1 += t1
+                s2 += t2
+
+            for m in range(1, int(np.floor((n+1)/2))):
+                for i in range(1,int(N(m)+1)):
+                    for j in range(1,int(N(n - m)+1)):
+                        if deltaK(l, phi3(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = NAlpha(n,i,j,m,n-m,Wm,w,x, M)
+                            s1 += Walpha
+                            s2 += Ualpha
+                        if deltaK(l, phi4(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = NAlpha(n,j,i,n-m,m,Wm,w,x, M)
+                            s1 += Walpha
+                            s2 += Ualpha
+                        if deltaK(l, phi5(n,m,i,j)) == 1:
+                            [Wbeta, Ubeta] = NBeta(n,i,j,m,n-m,Wm,w,x,M)
+                            s1 += Wbeta
+                            s2 += Ubeta          
+            return [s1, s2]
+    xs = np.linspace(0.0001,1,M)
+    Lam = []
+    Kap = []
+    for i in range(1,int(N(n)+1)):
+        l = []
+        k = []
+        for x in range(0,len(xs)):
+            [L,K] = LamKapNumerical(n,i,Wm,w,xs[x],M)
+            l.append(L)
+            k.append(K)
+        Lam.append(l)
+        Kap.append(k)
+    return [Lam,Kap]
+
+#Numerical solver for CQ
+def CQNumerical(n: int, Wm: float, w: float, M: int):
+    def LamKapNumerical(n: int, l: int, Wm: float, w: float, x: float, M: int): #Finds coefficients of \lambda
+        #Clustered quintessence Formulae:
+        def H(x: float, Wm: float, w: float):
+            #Returns Hubble parameter
+            return H0*np.sqrt(Wm*x**(-3) + (1-Wm)*x**(-3*(1+w)))
+
+        def C(x,Wm,w):
+            return 1 + (1+w)*((1 - Wm)/Wm)*x**(-3*w)
+
+        def OmegaM(x: float, Wm: float, w: float):
+            #Returns reduced matter density parameter
+            return Wm*H0**2/(H(x,Wm,w)**2*x**3)
+
+        def Dminus(x: float, Wm: int, w: int):
+            #Returns D_- (negative growing mode)
+            return H(x,Wm,w)
+
+        def Dplus(x: float, Wm: float, w:float):
+            #Returns D_+ (positive growing mode)
+            y = ((1 - Wm)/Wm)*x**(-3*w)
+            return a * (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
+
+        def fminus(x: float, Wm: float, w: float):
+            #Returns f_- (logarithmic growth rate of negative mode)
+            y = ((1 - Wm)/Wm)*x**(-3*w)
+            return -1.5*OmegaM(x,Wm,w)*C(x,Wm,w)
+
+        def fplus(x: float, Wm: float, w: float):
+            #Returns f_+ (logarithmic growth rate of growing mode)
+            y = ((1 - Wm)/Wm)*x**(-3*w)
+            return 1 + (3*w*x/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
+
+        def NAlpha(n: int, i: int, j: int, m1: int, m2: int, Wm: float, w: float, x: float, M: int):
+            WU0 = AlphaEDS(n,i,j,m1,m2)
+            def integrand(y: list, u: float):
+                fp = fplus(u,Wm,w)
+                fm = fminus(u,Wm,w)
+                c = C(u,Wm,w)
+                [L1,K1] = LamKapNumerical(m1,i,Wm,w,u,M)
+                [L2,K2] = LamKapNumerical(m2,j,Wm,w,u,M)
+                return [fp/u*(y[1] - n*y[0] + K1*L2/c) , fp/u*( (fm*fp**(-2))*(y[1] - y[0]) - (n-1)*y[1])] #integrand vector
+            u = np.linspace(0.000001,x,int(np.floor(M/2))) #M: Accuracy on sub-step
+            sol = q.odeint(integrand,WU0,u)
+            return [sol[-1,0], sol[-1,1]]
+
+        def NBeta(n: int, i: int, j: int, m1: int, m2: int, Wm: float, w: float, x: float, M: int):
+            WU0 = BetaEDS(n,i,j,m1,m2)
+            def integrand(y: list, u: float):
+                fp = fplus(u,Wm,w)
+                fm = fminus(u,Wm,w)
+                c = C(u,Wm,w)
+                [L1,K1] = LamKapNumerical(m1,i,Wm,w,u,M)
+                [L2,K2] = LamKapNumerical(m2,j,Wm,w,u,M)
+                return [fp/u*(y[1] - n*y[0]) , fp/u*( (fm*fp**(-2))*(y[1] - y[0]) - (n-1)*y[1] + K1*K2/c)] #integrand vector
+            a = np.linspace(0.000001,x,int(np.floor(M/2))) #M: Accuracy on sub-step
+            sol = q.odeint(integrand,WU0,a)
+            return [sol[-1,0],sol[-1,1]]
+
+        if n == 1:
+            return [1,1]
+        else:
+            s1 = 0
+            s2 = 0
+            if deltaK(n/2, np.floor(n/2)) == 1:
+                t1 = 0
+                t2 = 0
+                for i in range(1,int(N(n/2)+1)):
+                    for j in range(1,int(N(n/2)+1)):
+                        if deltaK(l,phi1(n,i,j)) == 1:
+                            [Walpha, Ualpha] = NAlpha(n,i,j,n/2,n/2,Wm,w,x, M)
+                            t1 += Walpha
+                            t2 += Ualpha
+                    #Maybe speed this up by using if i \leq i then (could get rid of the extra loop)
+                    for j in range(i,int(N(n/2)+1)):
+                        if deltaK(l,phi2(n,i,j)) == 1:
+                            [Wbeta, Ubeta] = NBeta(n,i,j,n/2,n/2,Wm,w,x, M)
+                            t1 += Wbeta
+                            t2 += Ubeta
+                s1 += t1
+                s2 += t2
+
+            for m in range(1, int(np.floor((n+1)/2))):
+                for i in range(1,int(N(m)+1)):
+                    for j in range(1,int(N(n - m)+1)):
+                        if deltaK(l, phi3(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = NAlpha(n,i,j,m,n-m,Wm,w,x, M)
+                            s1 += Walpha
+                            s2 += Ualpha
+                        if deltaK(l, phi4(n,m,i,j)) == 1:
+                            [Walpha, Ualpha] = NAlpha(n,j,i,n-m,m,Wm,w,x, M)
+                            s1 += Walpha
+                            s2 += Ualpha
+                        if deltaK(l, phi5(n,m,i,j)) == 1:
+                            [Wbeta, Ubeta] = NBeta(n,i,j,m,n-m,Wm,w,x,M)
+                            s1 += Wbeta
+                            s2 += Ubeta          
+            return [s1, s2]
+    xs = np.linspace(0.0001,1,M)
+    Lam = []
+    Kap = []
+    for i in range(1,int(N(n)+1)):
+        l = []
+        k = []
+        for x in range(0,len(xs)):
+            [L,K] = LamKapNumerical(n,i,Wm,w,xs[x],M)
+            l.append(L)
+            k.append(K)
+        Lam.append(l)
+        Kap.append(k)
+    return [Lam,Kap]
+
