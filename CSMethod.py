@@ -863,7 +863,7 @@ def SQSolver(n: int, M: int, Wm: float, w: float):
     def Dminus(x: float, Wm: int, w: int):
         #Returns D_- (negative growing mode)
         y = ((1 - Wm)/Wm)*x**(-3*w)
-        return H0*x**(-1.5)*hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y)
+        return H0*Wm**(0.5)*x**(-1.5)*hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y)
 
     def Dplus(x: float, Wm: float, w:float):
         #Returns D_+ (positive growing mode)
@@ -1501,7 +1501,7 @@ def CQSolver(n: int, M: int, Wm: float, w: float):
     def Dplus(x: float, Wm: float, w:float):
         #Returns D_+ (positive growing mode)
         y = ((1 - Wm)/Wm)*x**(-3*w)
-        return x*np.sqrt(1+y)*(hyp2f1(1.5,-5/(6*w), 1 - 5/(6*w), -y) + y*((1+w)/(1 - 1.2*w))*hyp2f1(1.5, 1-5/(6*w), 2 - 5/(6*w), -y ))
+        return a * (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
 
     def fminus(x: float, Wm: float, w: float):
         #Returns f_- (logarithmic growth rate of negative mode)
@@ -1511,7 +1511,7 @@ def CQSolver(n: int, M: int, Wm: float, w: float):
     def fplus(x: float, Wm: float, w: float):
         #Returns f_+ (logarithmic growth rate of growing mode)
         y = ((1 - Wm)/Wm)*x**(-3*w)
-        return fminus(x,Wm,w)*(1 - (5/3)*x/Dplus(x,Wm,w))
+        return 1 + (3*w*x/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
 
     if n == 1:
         #n = 1 perturbative solution is known
@@ -2152,11 +2152,11 @@ def CQSolverFAST(n: int, M: int, c: list, d: list, e: list):
 #Numerical solver for SQ
 def SQNumerical(n: int, Wm: float, w: float, M: int):
     def LamKapNumerical(n: int, l: int, Wm: float, w: float, x: float, M: int): #Finds coefficients of \lambda
-        #Clustered quintessence Formulae:
+        #Smooth Quintessence formulae
         def Dminus(x: float, Wm: int, w: int):
             #Returns D_- (negative growing mode)
             y = ((1 - Wm)/Wm)*x**(-3*w)
-            return H0*x**(-1.5)*hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y)
+            return H0*Wm**(0.5)*x**(-1.5)*hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y)
 
         def Dplus(x: float, Wm: float, w:float):
             #Returns D_+ (positive growing mode)
@@ -2174,19 +2174,13 @@ def SQNumerical(n: int, Wm: float, w: float, M: int):
         def fminus(x: float, Wm: float, w: float):
             #Returns f_- (logarithmic growth rate of negative mode)
             y = ((1 - Wm)/Wm)*x**(-3*w)
-            #My one (agrees with Z)
             return -1.5*(1 - ((2 + 3*w)/(5 + 6*w))*y*((hyp2f1(1 + 1/(2*w), 1.5 + 1/(3*w), 2 + 5/(6*w), -y))/(hyp2f1(1/(2*w), 0.5 + 1/(3*w), 1 + 5/(6*w), -y))))
 
         def fplus(x: float, Wm: float, w: float):
             #Returns f_+ (logarithmic growth rate of growing mode)
             y = ((1 - Wm)/Wm)*x**(-3*w)
-            #My one
             return 1 - 3*y*((w - 1)/(6*w - 5))*((hyp2f1(1 - 1/(3*w), 1.5 - 1/(2*w), 2 - 5/(6*w), -y))/(hyp2f1(-1/(3*w), 0.5 - 1/(2*w), 1 - 5/(6*w), -y)))
-            #My one 2
-            #return -1.5*OmegaM(x,Wm,w)*(1 - (5/3)*x/Dplus(x,Wm,w))
-            #my one 3
-            #return -1.5 - 1.5*w*y*(1+y)**(-1) + 2.5*x*OmegaM(x,Wm,w)/Dplus(x,Wm,w)
-        #Numerical integration code (brute force, slow)
+
 
         def NAlpha(n: int, i: int, j: int, m1: int, m2: int, Wm: float, w: float, x: float, M: int):
             WU0 = AlphaEDS(n,i,j,m1,m2)
@@ -2287,7 +2281,7 @@ def CQNumerical(n: int, Wm: float, w: float, M: int):
         def Dplus(x: float, Wm: float, w:float):
             #Returns D_+ (positive growing mode)
             y = ((1 - Wm)/Wm)*x**(-3*w)
-            return x*np.sqrt(1+y)*(hyp2f1(1.5,-5/(6*w), 1 - 5/(6*w), -y) + y*((1+w)/(1 - 1.2*w))*hyp2f1(1.5, 1-5/(6*w), 2 - 5/(6*w), -y ))
+            return a * (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
 
         def fminus(x: float, Wm: float, w: float):
             #Returns f_- (logarithmic growth rate of negative mode)
@@ -2297,8 +2291,7 @@ def CQNumerical(n: int, Wm: float, w: float, M: int):
         def fplus(x: float, Wm: float, w: float):
             #Returns f_+ (logarithmic growth rate of growing mode)
             y = ((1 - Wm)/Wm)*x**(-3*w)
-            return fminus(x,Wm,w)*(1 - (5/3)*x/Dplus(x,Wm,w))
-        #Numerical integration code (brute force, slow)
+            return 1 + (3*w*x/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
 
         def NAlpha(n: int, i: int, j: int, m1: int, m2: int, Wm: float, w: float, x: float, M: int):
             WU0 = AlphaEDS(n,i,j,m1,m2)
@@ -2378,3 +2371,4 @@ def CQNumerical(n: int, Wm: float, w: float, M: int):
         Lam.append(l)
         Kap.append(k)
     return [Lam,Kap]
+
