@@ -1501,7 +1501,7 @@ def CQSolver(n: int, M: int, Wm: float, w: float):
     def Dplus(x: float, Wm: float, w:float):
         #Returns D_+ (positive growing mode)
         y = ((1 - Wm)/Wm)*x**(-3*w)
-        return a * (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
+        return x* (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
 
     def fminus(x: float, Wm: float, w: float):
         #Returns f_- (logarithmic growth rate of negative mode)
@@ -1511,7 +1511,7 @@ def CQSolver(n: int, M: int, Wm: float, w: float):
     def fplus(x: float, Wm: float, w: float):
         #Returns f_+ (logarithmic growth rate of growing mode)
         y = ((1 - Wm)/Wm)*x**(-3*w)
-        return 1 + (3*w*x/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
+        return 1 + (3*w*x*y/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
 
     if n == 1:
         #n = 1 perturbative solution is known
@@ -2281,7 +2281,7 @@ def CQNumerical(n: int, Wm: float, w: float, M: int):
         def Dplus(x: float, Wm: float, w:float):
             #Returns D_+ (positive growing mode)
             y = ((1 - Wm)/Wm)*x**(-3*w)
-            return a * (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
+            return x * (hyp2f1(-0.5 - 5/(6*w), 1, 1 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*y*hyp2f1(0.5 - 5/(6*w), 1, 2 - 5/(6*w), -y))
 
         def fminus(x: float, Wm: float, w: float):
             #Returns f_- (logarithmic growth rate of negative mode)
@@ -2291,7 +2291,7 @@ def CQNumerical(n: int, Wm: float, w: float, M: int):
         def fplus(x: float, Wm: float, w: float):
             #Returns f_+ (logarithmic growth rate of growing mode)
             y = ((1 - Wm)/Wm)*x**(-3*w)
-            return 1 + (3*w*x/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
+            return 1 + (3*w*x*y/Dplus(x,Wm,w)) * (((5 + 3*w)/(5 - 6*w))*hyp2f1(0.5 - 5/(6*w), 2, 2 - 5/(6*w), -y) + ((1 + w)/(1 - 6*w/5))*(- hyp2f1(1/2 - 5/(6*w), 1, 2 - 5/6*w, -y) + ((5 - 3*w)/(5 - 12*w))*y*hyp2f1(1.5 - 5/(6*w), 2, 3 - 5/(6*w), -y)))
 
         def NAlpha(n: int, i: int, j: int, m1: int, m2: int, Wm: float, w: float, x: float, M: int):
             WU0 = AlphaEDS(n,i,j,m1,m2)
